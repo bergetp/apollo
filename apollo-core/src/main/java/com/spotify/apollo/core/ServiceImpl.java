@@ -45,6 +45,7 @@ import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.ConfigValueFactory;
 
+import java.util.concurrent.ScheduledExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,11 +93,14 @@ class ServiceImpl implements Service {
   private final boolean moduleDiscovery;
   private final boolean shutdownInterrupt;
   private final boolean cliHelp;
+  private final ExecutorService executorService;
+  private final ScheduledExecutorService scheduledExecutorService;
 
   ServiceImpl(
       String serviceName, ImmutableSet<ApolloModule> modules, String envVarPrefix,
       long watchdogTimeout, TimeUnit watchdogTimeoutUnit, Runtime runtime,
-      boolean moduleDiscovery, boolean shutdownInterrupt, boolean cliHelp) {
+      boolean moduleDiscovery, boolean shutdownInterrupt, boolean cliHelp,
+      ExecutorService executorService, ScheduledExecutorService scheduledExecutorService) {
     this.envVarPrefix = envVarPrefix;
     this.watchdogTimeout = watchdogTimeout;
     this.watchdogTimeoutUnit = watchdogTimeoutUnit;
@@ -106,6 +110,8 @@ class ServiceImpl implements Service {
     this.moduleDiscovery = moduleDiscovery;
     this.shutdownInterrupt = shutdownInterrupt;
     this.cliHelp = cliHelp;
+    this.executorService = executorService;
+    this.scheduledExecutorService = scheduledExecutorService;
   }
 
   @Override
@@ -153,10 +159,10 @@ class ServiceImpl implements Service {
       final Config config = addEnvOverrides(env, parsedArguments).resolve();
 
       final ListeningExecutorService executorService =
-          createExecutorService(closer);
+          createExecutorService(closer, this.executorService);
 
       final ListeningScheduledExecutorService scheduledExecutorService =
-          createScheduledExecutorService(closer);
+          createScheduledExecutorService(closer, this.scheduledExecutorService);
 
       final Set<ApolloModule> allModules = discoverAllModules();
       final CoreModule coreModule =
@@ -243,21 +249,27 @@ class ServiceImpl implements Service {
     return allModules;
   }
 
-  ListeningScheduledExecutorService createScheduledExecutorService(Closer closer) {
+  ListeningScheduledExecutorService createScheduledExecutorService(
+      Closer closer, ScheduledExecutorService scheduledExecutor) {
+    if (scheduledExecutor == null) {
+      scheduledExecutor = Executors.newScheduledThreadPool(
+          Math.max(Runtime.getRuntime().availableProcessors(), 2),
+          new ThreadFactoryBuilder().setNameFormat(serviceName + "-scheduled-%d").build());
+    }
+
     final ListeningScheduledExecutorService scheduledExecutorService =
-        MoreExecutors.listeningDecorator(
-            Executors.newScheduledThreadPool(
-                Math.max(Runtime.getRuntime().availableProcessors(), 2),
-                new ThreadFactoryBuilder().setNameFormat(serviceName + "-scheduled-%d").build()));
+        MoreExecutors.listeningDecorator(scheduledExecutor);
     closer.register(asCloseable(scheduledExecutorService));
     return scheduledExecutorService;
   }
 
-  ListeningExecutorService createExecutorService(Closer closer) {
-    final ListeningExecutorService executorService =
-        MoreExecutors.listeningDecorator(
-            Executors.newCachedThreadPool(
-                new ThreadFactoryBuilder().setNameFormat(serviceName + "-worker-%d").build()));
+  ListeningExecutorService createExecutorService(Closer closer, ExecutorService executor) {
+    if (executor == null) {
+      executor = Executors.newCachedThreadPool(
+          new ThreadFactoryBuilder().setNameFormat(serviceName + "-worker-%d").build());
+    }
+
+    final ListeningExecutorService executorService = MoreExecutors.listeningDecorator(executor);
     closer.register(asCloseable(executorService));
     return executorService;
   }
@@ -430,7 +442,7 @@ class ServiceImpl implements Service {
   static Builder builder(String serviceName) {
     return new BuilderImpl(
         serviceName, ImmutableSet.builder(), ENV_VAR_PREFIX, 1, TimeUnit.MINUTES, Runtime.getRuntime(),
-        false, false, true);
+        false, false, true, null, null);
   }
 
   static class BuilderImpl implements Builder {
@@ -444,6 +456,8 @@ class ServiceImpl implements Service {
     private boolean moduleDiscovery;
     private boolean shutdownInterrupt;
     private boolean cliHelp;
+    private ExecutorService executorService;
+    private ScheduledExecutorService scheduledExecutorService;
 
     BuilderImpl(
         String serviceName,
@@ -452,7 +466,9 @@ class ServiceImpl implements Service {
         long watchdogTimeout, TimeUnit watchdogTimeoutUnit, Runtime runtime,
         boolean moduleDiscovery,
         boolean shutdownInterrupt,
-        boolean cliHelp) {
+        boolean cliHelp,
+        ExecutorService executorService,
+        ScheduledExecutorService scheduledExecutorService) {
       this.serviceName = Objects.requireNonNull(serviceName);
       this.moduleBuilder = moduleBuilder;
       this.envVarPrefix = envVarPrefix;
@@ -462,6 +478,7 @@ class ServiceImpl implements Service {
       this.moduleDiscovery = moduleDiscovery;
       this.shutdownInterrupt = shutdownInterrupt;
       this.cliHelp = cliHelp;
+      this.executorService = executorService;
     }
 
     @Override
@@ -508,10 +525,23 @@ class ServiceImpl implements Service {
     }
 
     @Override
+    public Builder withExecutorService(ExecutorService executorService) {
+      this.executorService = executorService;
+      return this;
+    }
+
+    @Override
+    public Builder withScheduledExecutorService(ScheduledExecutorService scheduledExecutorService) {
+      this.scheduledExecutorService = scheduledExecutorService;
+      return this;
+    }
+
+    @Override
     public Service build() {
       return new ServiceImpl(
           serviceName, moduleBuilder.build(), envVarPrefix, watchdogTimeout, watchdogTimeoutUnit,
-          runtime, moduleDiscovery, shutdownInterrupt, cliHelp);
+          runtime, moduleDiscovery, shutdownInterrupt, cliHelp, executorService,
+          scheduledExecutorService);
     }
   }
 

@@ -31,6 +31,9 @@ import com.typesafe.config.Config;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -168,6 +171,30 @@ public interface Service {
      */
     @VisibleForTesting
     Builder withRuntime(Runtime runtime);
+
+    /**
+     * Set an ExecutorService to be used with a shared
+     * {@link com.google.common.util.concurrent.ListeningExecutorService} for long-running jobs. See
+     * {@link Instance#getExecutorService()} for more information. If not set, a new ExecutorService
+     * will be created using {@link Executors#newCachedThreadPool()}.
+     *
+     * @param executorService The ExecutorService to use for long-running jobs.
+     * @return This builder.
+     */
+    Builder withExecutorService(ExecutorService executorService);
+
+    /**
+     * Set an ScheduledExecutorService to be used with a shared
+     * {@link com.google.common.util.concurrent.ListeningScheduledExecutorService} for scheduled
+     * jobs. See {@link Instance#getScheduledExecutorService()} for more information. If not set, a
+     * new ExecutorService will be created using {@link Executors#newScheduledThreadPool(int)} based
+     * on the number of available CPU cores.
+     *
+     * @param scheduledExecutorService The ScheduledExecutorService service to use for
+     *                                 scheduled tasks.
+     * @return This builder.
+     */
+    Builder withScheduledExecutorService(ScheduledExecutorService scheduledExecutorService);
 
     /**
      * Creates a new service based off of this builder.

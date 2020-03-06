@@ -19,26 +19,6 @@
  */
 package com.spotify.apollo.core;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.math.IntMath;
-
-import com.spotify.apollo.module.AbstractApolloModule;
-import com.typesafe.config.Config;
-import com.typesafe.config.ConfigFactory;
-import com.typesafe.config.ConfigValueFactory;
-
-import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-
-import java.io.IOException;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static com.spotify.apollo.core.Services.CommonConfigKeys.APOLLO_ARGS_CORE;
 import static com.spotify.apollo.core.Services.CommonConfigKeys.APOLLO_ARGS_UNPARSED;
 import static org.hamcrest.Matchers.contains;
@@ -51,6 +31,24 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.math.IntMath;
+import com.spotify.apollo.module.AbstractApolloModule;
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
+import com.typesafe.config.ConfigValueFactory;
+import java.io.IOException;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 public class ServiceImplTest {
 
@@ -503,6 +501,26 @@ public class ServiceImplTest {
     try (Service.Instance instance = service.start()) {
       assertNotNull(instance.getExecutorService());
       assertNotNull(instance.getScheduledExecutorService());
+    }
+  }
+
+  @Test
+  public void testCustomExecutors() throws Exception {
+    ExecutorService executorService = mock(ExecutorService.class);
+    ScheduledExecutorService scheduledExecutorService = mock(ScheduledExecutorService.class);
+    Runnable runnable = () -> {};
+
+    Service service = ServiceImpl.builder("test")
+        .withExecutorService(executorService)
+        .withScheduledExecutorService(scheduledExecutorService)
+        .build();
+
+    try (Service.Instance instance = service.start()) {
+      instance.getExecutorService().execute(runnable);
+      verify(executorService).execute(runnable);
+
+      instance.getScheduledExecutorService().execute(runnable);
+      verify(scheduledExecutorService).execute(runnable);
     }
   }
 
